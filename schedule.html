@@ -35,21 +35,25 @@
       border-left: 6px solid #3498db;
       padding: 15px;
       border-radius: 6px;
-      margin-bottom: 20px;
+      margin-bottom: 25px; /* more breathing room */
     }
     .highlight h3 {
       margin-top: 0;
       color: #2980b9;
     }
+    .table-wrapper {
+      overflow-x: auto; /* allows smooth scroll on small screens */
+    }
     table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 10px;
+      min-width: 300px; /* keeps structure on narrow screens */
     }
     th, td {
       border: 1px solid #ddd;
       padding: 10px;
       text-align: left;
+      font-size: 14px;
     }
     th {
       background: #f0f0f0;
@@ -67,11 +71,13 @@
 
     <div class="highlight" id="daily1">
       <h3>Today</h3>
-      <p>Loading...</p>
+      <p>Select a homeroom above to see today’s schedule.</p>
     </div>
 
     <h3>Next 5 Days</h3>
-    <div id="week1"></div>
+    <div id="week1" class="table-wrapper">
+      <p>Select a homeroom above to see upcoming days.</p>
+    </div>
   </div>
 
   <!-- Child 2 -->
@@ -82,11 +88,13 @@
 
     <div class="highlight" id="daily2">
       <h3>Today</h3>
-      <p>Loading...</p>
+      <p>Select a homeroom above to see today’s schedule.</p>
     </div>
 
     <h3>Next 5 Days</h3>
-    <div id="week2"></div>
+    <div id="week2" class="table-wrapper">
+      <p>Select a homeroom above to see upcoming days.</p>
+    </div>
   </div>
 
   <!-- Load PapaParse -->
@@ -158,6 +166,11 @@
       const todayIndex = calendarData.findIndex(r => r.Date === todayStr);
       let nextRows = calendarData.slice(todayIndex, todayIndex + 6);
 
+      if (!nextRows.length) {
+        weekDiv.innerHTML = "<p>No upcoming data available.</p>";
+        return;
+      }
+
       let table = "<table><tr><th>Date</th><th>Day</th><th>Special</th></tr>";
       nextRows.forEach(r => {
         if (!r.Date) return;
@@ -170,7 +183,7 @@
         </tr>`;
       });
       table += "</table>";
-      weekDiv.innerHTML = table;
+      weekDiv.innerHTML = `<div class="table-wrapper">${table}</div>`;
     }
 
     window.onload = loadData;
