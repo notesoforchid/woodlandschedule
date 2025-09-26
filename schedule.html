@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>6-Day Specials Schedule</title>
+  <meta charset="utf-8"/>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 18px; }
+    select { margin: 10px; padding: 6px; }
+    table { border-collapse: collapse; margin-top: 10px; width: 100%; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+    th { background: #f4f4f4; }
+    .student-block { border: 2px solid #ddd; border-radius: 8px; padding: 15px; margin: 20px 0; }
+    .today-row { background-color: #ffffcc; font-weight: bold; }
+    .daily-card {
+      background-color: #e6f7ff;
+      border: 2px solid #99d6ff;
+      border-radius: 10px;
+      padding: 15px;
+      margin: 15px 0;
+      font-size: 1.15em;
+      text-align: center;
+      box-shadow: 2px 2px 6px rgba(0,0,0,0.08);
+    }
+    .daily-card b { color: #005580; }
+  </style>
+</head>
+<body>
+
+<h2>Specials Schedule</h2>
+
+<!-- Child 1 -->
+<div class="student-block">
+  <h3>Child 1</h3>
+  <label for="homeroom1">Choose Homeroom:</label>
+  <select id="homeroom1"></select>
+  <div id="dailyView1"></div>
+  <div id="weeklyView1"></div>
+</div>
+
+<!-- Child 2 -->
+<div class="student-block">
+  <h3>Child 2</h3>
+  <label for="homeroom2">Choose Homeroom:</label>
+  <select id="homeroom2"></select>
+  <div id="dailyView2"></div>
+  <div id="weeklyView2"></div>
+</div>
+
+<script>
+  // Links to your published Google Sheets CSVs
+  const calendarUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vThlCcG-UjJPsj0VqjrRCeP9dlrGpzbh9aeV7q7mTniPBNWF61UvQHLb9N_uq-GH_NjQxqVnqtJa86U/pub?gid=0&single=true&output=csv";
+  const homeroomsUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vThlCcG-UjJPsj0VqjrRCeP9dlrGpzbh9aeV7q7mTniPBNWF61UvQHLb9N_uq-GH_NjQxqVnqtJa86U/pub?gid=414191937&single=true&output=csv";
+
+  let calendar = {};      // map "MM/DD/YYYY" -> { day: 1..6 | null, dow: "Monday", etc. }
+  let homerooms = {};     // map homeroomKey -> {1: "PE", 2: "Music", ... }
+  let allDates = [];
+
+  function formatDateMMDDYYYY(d) {
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    return `${mm}/${dd}/${yyyy}`;
+  }
+
+  function dateFromMDY(norm) {
+    if (!norm || typeof norm !== 'string') return new Date(NaN);
+    const parts = norm.split('/');
+    if (parts.length !== 3) return new Date(norm);
+    const mm = parseInt(parts[0], 10);
+    const dd = parseInt(parts[1], 10);
+    const yyyy = parseInt(parts[2], 10);
+    return new Date(yyyy, mm - 1, dd);
+  }
+
+  function normalizeDateString(s) {
+    if (!s && s !== 0) return "";
+    s = String(s).trim().replace(/^"|"$/g, '');
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)) {
+      const [y,m,d] = s.split("-");
+      return `${String(m).padStart(2,'0')}/${String(d).padStart(2,'0')}/${y}`;
+    }
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) {
+      const parts = s.split("/");
+      let a = parseInt(parts[0],10), b = parseInt(parts[1],10), y = parts[2];
+      if (a > 12 && b <=12) { const tmp = a; a = b; b = tmp; }
+      return `${String(a).padStart(2,'0')}/${String(b).padStart(2,'0')}/${y}`;
+    }
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) return formatDateMMDDYYYY(d);
+    return s;
+  }
+
+  function splitCsvLine(line) {
+    const out = [];
+    let cur = "", inQuotes = false;
+    for (let i=0; i<line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i+1] === '"') { cur += '"'; i++; }
+        else { inQuotes = !inQuotes; }
+      } else if (ch === ',' && !inQuotes) {
+        out.push(cur);
+        cur = "";
+      } else {
+        cur += ch;
+      }
+    }
+    out.push(cur);
+    return out;
+  }
+
+  function parseCsv(text) {
+    const lines = text.replace(/\r/g,'').split('\n').filter(l => l.trim() !== "");
+    return lines.map(splitCsvLine);
+  }
+
+  async function loadData() {
+    try {
+      // Parse calendar CSV
+      const calResp = await fetch(calendarUrl);
+      const calText = await calResp.text();
+      const calRows = parseCsv(calText);
+      const headers = calRows[0].map(h => (h||"").toString().trim().toLowerCase());
+      let dateIdx = headers.findIndex(h => h.includes('date'));
+      let dayIdx  = headers.findIndex(h => h === 'day');
+      let dowIdx  = headers.findIndex(h => h.includes('week'));
+      calendar = {};
+      allDates = [];
+      for (let i=1; i<calRows.length; i++) {
+        const row = calRows[i];
+        const rawDate = row[dateIdx] || "";
+        const rawDay  = row[dayIdx]  || "";
+        const rawDow  = row[dowIdx]  || "";
+        const norm = normalizeDateString(rawDate);
+        let dayVal = null;
+        const rd = rawDay.trim().toLowerCase();
+        if (/^[1-6]$/.test(rawDay.trim())) {
+          dayVal = parseInt(rawDay.trim(), 10);
+        } else {
+          dayVal = null;  // treat non-numeric as no school / weekend / etc.
+        }
+        calendar[norm] = { day: dayVal, dow: rawDow.trim() };
+        allDates.push(norm);
+      }
+      allDates.sort((a,b) => dateFromMDY(a) - dateFromMDY(b));
+
+      // Parse homerooms CSV
+      const hrResp = await fetch(homeroomsUrl);
+      const hrText = await hrResp.text();
+      const hrRows = parseCsv(hrText);
+      homerooms = {};
+      for (let i=1; i<hrRows.length; i++) {
+        const row = hrRows[i];
+        const key = row[0] ? String(row[0]).trim() : `Row${i}`;
+        homerooms[key] = {};
+        for (let j=1; j<row.length; j++) {
+          homerooms[key][j] = row[j] ? String(row[j]).trim() : "";
+        }
+      }
+
+      // Build dropdowns and views
+      populateDropdown("homeroom1", "dailyView1", "weeklyView1");
+      populateDropdown("homeroom2", "dailyView2", "weeklyView2");
+
+    } catch (err) {
+      console.error("Error loading CSVs:", err);
+    }
+  }
+
+  function populateDropdown(selectId, dailyId, weeklyId) {
+    const select = document.getElementById(selectId);
+    select.innerHTML = "";
+    Object.keys(homerooms).forEach(h => {
+      const option = document.createElement("option");
+      option.value = h;
+      option.textContent = String(h);
+      select.appendChild(option);
+    });
+    select.value = Object.keys(homerooms)[0] || "";
+    select.addEventListener("change", () => renderViews(selectId, dailyId, weeklyId));
+    renderViews(selectId, dailyId, weeklyId);
+  }
+
+  function findStartIndex(todayKey) {
+    let idx = allDates.indexOf(todayKey);
+    if (idx >= 0) return idx;
+    const todayObj = dateFromMDY(todayKey);
+    for (let i=0; i<allDates.length; i++) {
+      const d = dateFromMDY(allDates[i]);
+      if (d >= todayObj) return i;
+    }
+    return -1;
+  }
+
+  function renderViews(selectId, dailyId, weeklyId) {
+    const select = document.getElementById(selectId);
+    const todayKey = formatDateMMDDYYYY(new Date());
+    const selectedHomeroom = select.value || Object.keys(homerooms)[0];
+    const calEntry = calendar[todayKey];
+
+    let cycleDay, dow, special;
+    if (calEntry && calEntry.day) {
+      cycleDay = calEntry.day;
+      dow = calEntry.dow || "";
+      special = homerooms[selectedHomeroom] && homerooms[selectedHomeroom][cycleDay] ? homerooms[selectedHomeroom][cycleDay] : "No school";
+    } else if (calEntry) {
+      cycleDay = "-";
+      dow = calEntry.dow || "";
+      special = "No school";
+    } else {
+      cycleDay = "-";
+      dow = "";
+      special = "No school";
+    }
+
+    document.getElementById(dailyView1).innerHTML = "";
+    document.getElementById(dailyView2).innerHTML = "";
+
+    document.getElementById(dailyId).innerHTML = `
+      <div class="daily-card">
+        <b>${dow}</b> | <b>Date:</b> ${todayKey} | <b>Day:</b> ${cycleDay} <br>
+        <span style="font-size:1.3em;">Special: <b>${special}</b></span>
+      </div>
+    `;
+
+    const startIndex = findStartIndex(todayKey);
+    const upcomingDates = (startIndex >= 0) ? allDates.slice(startIndex, startIndex + 6) : [];
+
+    let table = `<h4>Upcoming 6 Days</h4><table><tr><th>Day of Week</th><th>Date</th><th>Special</th></tr>`;
+    upcomingDates.forEach(date => {
+      const entry = calendar[date] || {};
+      const dayNum = entry.day;
+      const dowText = entry.dow || "";
+      const sp = (dayNum && homerooms[selectedHomeroom] && homerooms[selectedHomeroom][dayNum]) ? homerooms[selectedHomeroom][dayNum] : "No school";
+      const highlight = (date === todayKey) ? " class='today-row'" : "";
+      table += `<tr${highlight}><td>${dowText}</td><td>${date}</td><td>${sp}</td></tr>`;
+    });
+    table += `</table>`;
+    document.getElementById(weeklyId).innerHTML = table;
+  }
+
+  loadData();
+</script>
+</body>
+</html>
