@@ -22,12 +22,10 @@
       box-shadow: 2px 2px 6px rgba(0,0,0,0.08);
     }
     .daily-card b { color: #005580; }
-    #debug { font-size: 0.9em; color: #333; margin-bottom: 10px; white-space: pre-wrap; }
   </style>
 </head>
 <body>
   <h2>Specials Schedule</h2>
-  <div id="debug">Loading debug info...</div>
 
   <div class="student-block">
     <h3>Child 1</h3>
@@ -46,7 +44,6 @@
   </div>
 
   <script>
-    // CSV URLs
     const calendarUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vThlCcG-UjJPsj0VqjrRCeP9dlrGpzbh9aeV7q7mTniPBNWF61UvQHLb9N_uq-GH_NjQxqVnqtJa86U/pub?gid=0&single=true&output=csv";
     const homeroomsUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vThlCcG-UjJPsj0VqjrRCeP9dlrGpzbh9aeV7q7mTniPBNWF61UvQHLb9N_uq-GH_NjQxqVnqtJa86U/pub?gid=414191937&single=true&output=csv";
 
@@ -116,7 +113,6 @@
     async function loadData() {
       try {
         const calResp = await fetch(calendarUrl);
-        if (!calResp.ok) throw new Error(`Calendar fetch failed: ${calResp.status}`);
         const calText = await calResp.text();
         const calRows = parseCsv(calText);
         const headers = calRows[0].map(h => (h||"").toString().trim().toLowerCase());
@@ -131,112 +127,17 @@
           const rawDay  = row[dayIdx]  || "";
           const rawDow  = row[dowIdx]  || "";
           const norm = normalizeDateString(rawDate);
-          let dayVal = null;
-          const rd = rawDay.trim().toLowerCase();
-          if (/^[1-6]$/.test(rawDay.trim())) {
-            dayVal = parseInt(rawDay.trim(), 10);
-          } else {
-            dayVal = null; 
-          }
+          let dayVal = /^[1-6]$/.test(rawDay.trim()) ? parseInt(rawDay.trim(), 10) : null;
           calendar[norm] = { day: dayVal, dow: rawDow.trim() };
           allDates.push(norm);
         }
         allDates.sort((a,b) => dateFromMDY(a) - dateFromMDY(b));
 
         const hrResp = await fetch(homeroomsUrl);
-        if (!hrResp.ok) throw new Error(`Homerooms fetch failed: ${hrResp.status}`);
         const hrText = await hrResp.text();
         const hrRows = parseCsv(hrText);
         homerooms = {};
         for (let i=1; i<hrRows.length; i++) {
           const row = hrRows[i];
           const key = row[0] ? String(row[0]).trim() : `Row${i}`;
-          homerooms[key] = {};
-          for (let j=1; j<row.length; j++) {
-            homerooms[key][j] = row[j] ? String(row[j]).trim() : "";
-          }
-        }
-
-        populateDropdown("homeroom1", "dailyView1", "weeklyView1");
-        populateDropdown("homeroom2", "dailyView2", "weeklyView2");
-      }
-      catch (err) {
-        document.getElementById('debug').innerText = `Error during loadData: ${err.message}`;
-        console.error(err);
-      }
-    }
-
-    function populateDropdown(selectId, dailyId, weeklyId) {
-      const select = document.getElementById(selectId);
-      select.innerHTML = "";
-      Object.keys(homerooms).forEach(h => {
-        const option = document.createElement("option");
-        option.value = h;
-        option.textContent = String(h);
-        select.appendChild(option);
-      });
-      select.value = Object.keys(homerooms)[0] || "";
-      select.addEventListener("change", () => renderViews(selectId, dailyId, weeklyId));
-      renderViews(selectId, dailyId, weeklyId);
-    }
-
-    function findStartIndex(todayKey) {
-      let idx = allDates.indexOf(todayKey);
-      if (idx >= 0) return idx;
-      const todayObj = dateFromMDY(todayKey);
-      for (let i=0; i<allDates.length; i++) {
-        const d = dateFromMDY(allDates[i]);
-        if (d >= todayObj) return i;
-      }
-      return -1;
-    }
-
-    function renderViews(selectId, dailyId, weeklyId) {
-      const todayKey = formatDateMMDDYYYY(new Date());
-      const selectedHomeroom = document.getElementById(selectId).value || Object.keys(homerooms)[0];
-      const calEntry = calendar[todayKey];
-      let cycleDay, dow, special;
-      if (calEntry && calEntry.day) {
-        cycleDay = calEntry.day;
-        dow = calEntry.dow || "";
-        special = (homerooms[selectedHomeroom] && homerooms[selectedHomeroom][cycleDay]) ? homerooms[selectedHomeroom][cycleDay] : "No school";
-      } else if (calEntry) {
-        cycleDay = "-";
-        dow = calEntry.dow || "";
-        special = "No school";
-      } else {
-        cycleDay = "-";
-        dow = "";
-        special = "No school";
-      }
-
-      document.getElementById(dailyView1).innerHTML = "";
-      document.getElementById(dailyView2).innerHTML = "";
-
-      document.getElementById(dailyId).innerHTML = `
-        <div class="daily-card">
-          <b>${dow}</b> | <b>Date:</b> ${todayKey} | <b>Day:</b> ${cycleDay} <br>
-          <span style="font-size:1.3em;">Special: <b>${special}</b></span>
-        </div>
-      `;
-
-      const startIndex = findStartIndex(todayKey);
-      const upcomingDates = (startIndex >= 0) ? allDates.slice(startIndex, startIndex + 6) : [];
-
-      let table = `<h4>Upcoming 6 Days</h4><table><tr><th>Day of Week</th><th>Date</th><th>Special</th></tr>`;
-      upcomingDates.forEach(date => {
-        const entry = calendar[date] || {};
-        const dayNum = entry.day;
-        const dowText = entry.dow || "";
-        const sp = (dayNum && homerooms[selectedHomeroom] && homerooms[selectedHomeroom][dayNum]) ? homerooms[selectedHomeroom][dayNum] : "No school";
-        const highlight = (date === todayKey) ? " class='today-row'" : "";
-        table += `<tr${highlight}><td>${dowText}</td><td>${date}</td><td>${sp}</td></tr>`;
-      });
-      table += `</table>`;
-      document.getElementById(weeklyId).innerHTML = table;
-    }
-
-    loadData();
-  </script>
-</body>
-</html>
+          homero
