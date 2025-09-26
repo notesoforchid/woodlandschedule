@@ -155,7 +155,7 @@
         const special = homeroomData[homeroom][`Day${day}`] || "No school";
         dailyDiv.innerHTML = `
           <h3>Today</h3>
-          <p><strong>${todayRow["Day of the week"]}</strong>, ${todayRow.Date}</p>
+          <p><strong>${todayRow["Day of the week"]}</strong>, ${todayRow.Date} - Day ${day}</p>
           <p>Special: ${special}</p>
         `;
       } else {
