@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Homeroom Specials Schedule</title>
   <style>
     body {
@@ -35,19 +36,19 @@
       border-left: 6px solid #3498db;
       padding: 15px;
       border-radius: 6px;
-      margin-bottom: 25px; /* more breathing room */
+      margin-bottom: 25px;
     }
     .highlight h3 {
       margin-top: 0;
       color: #2980b9;
     }
     .table-wrapper {
-      overflow-x: auto; /* allows smooth scroll on small screens */
+      overflow-x: auto;
     }
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 300px; /* keeps structure on narrow screens */
+      min-width: 300px;
     }
     th, td {
       border: 1px solid #ddd;
@@ -61,6 +62,7 @@
   </style>
 </head>
 <body>
+
   <h1>Homeroom Specials Schedule</h1>
 
   <!-- Child 1 -->
@@ -101,6 +103,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
 
   <script>
+    // CSV Published Links
     const calendarUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vThlCcG-UjJPsj0VqjrRCeP9dlrGpzbh9aeV7q7mTniPBNWF61UvQHLb9N_uq-GH_NjQxqVnqtJa86U/pub?gid=0&single=true&output=csv";
     const homeroomUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vThlCcG-UjJPsj0VqjrRCeP9dlrGpzbh9aeV7q7mTniPBNWF61UvQHLb9N_uq-GH_NjQxqVnqtJa86U/pub?gid=414191937&single=true&output=csv";
 
@@ -111,15 +114,24 @@
       Papa.parse(calendarUrl, {
         download: true,
         header: true,
+        skipEmptyLines: true,
         complete: function(results) {
           calendarData = results.data;
+          
           Papa.parse(homeroomUrl, {
             download: true,
             header: true,
+            skipEmptyLines: true,
             complete: function(results2) {
               results2.data.forEach(row => {
-                homeroomData[row.Homeroom] = row;
+                // Find column key matching 'Homeroom' ignoring trailing spaces
+                const hrKey = Object.keys(row).find(k => k.trim() === "Homeroom");
+                if (hrKey && row[hrKey]) {
+                  const homeroomName = row[hrKey].trim();
+                  homeroomData[homeroomName] = row;
+                }
               });
+
               populateDropdown("homeroom1", "daily1", "week1");
               populateDropdown("homeroom2", "daily2", "week2");
             }
@@ -130,41 +142,74 @@
 
     function populateDropdown(selectId, dailyId, weekId) {
       const select = document.getElementById(selectId);
+      select.innerHTML = '<option value="">-- Select Homeroom --</option>';
+
       Object.keys(homeroomData).forEach(hr => {
         let option = document.createElement("option");
         option.value = hr;
         option.textContent = hr;
         select.appendChild(option);
       });
+
       select.addEventListener("change", function() {
         renderViews(select.value, dailyId, weekId);
       });
+    }
+
+    // Safely compare dates regardless of zero padding (08/31/2026 vs 8/31/2026)
+    function isSameDate(dateStr, targetDateObj) {
+      if (!dateStr) return false;
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return false;
+      return d.getFullYear() === targetDateObj.getFullYear() &&
+             d.getMonth() === targetDateObj.getMonth() &&
+             d.getDate() === targetDateObj.getDate();
+    }
+
+    // Normalizes day identifiers like "01", "Day 01", "1" -> maps to "Day1"
+    function getSpecialForDay(homeroom, rawDayValue) {
+      if (!homeroom || !rawDayValue || !homeroomData[homeroom]) return "No data";
+
+      // Extracts digits only (e.g., "Day 01" or "01" becomes 1)
+      const numericDay = parseInt(String(rawDayValue).replace(/\D/g, ""), 10);
+      if (isNaN(numericDay)) return rawDayValue || "No school";
+
+      const targetKey = `Day${numericDay}`;
+
+      // Search for key matching DayX in homeroom row (ignoring spaces)
+      const matchedKey = Object.keys(homeroomData[homeroom]).find(k => k.trim() === targetKey);
+
+      return matchedKey ? (homeroomData[homeroom][matchedKey] || "No special") : "No special";
     }
 
     function renderViews(homeroom, dailyId, weekId) {
       const dailyDiv = document.getElementById(dailyId);
       const weekDiv = document.getElementById(weekId);
 
-      if (!homeroom) return;
+      if (!homeroom) {
+        dailyDiv.innerHTML = "<h3>Today</h3><p>Select a homeroom above to see today’s schedule.</p>";
+        weekDiv.innerHTML = "<p>Select a homeroom above to see upcoming days.</p>";
+        return;
+      }
 
-      const todayStr = new Date().toLocaleDateString("en-US");
-      const todayRow = calendarData.find(r => r.Date === todayStr);
+      const today = new Date();
+      const todayRow = calendarData.find(r => isSameDate(r.Date, today));
 
       if (todayRow) {
-        const day = todayRow.Day;
-        const special = homeroomData[homeroom][`Day${day}`] || "No school";
+        const special = getSpecialForDay(homeroom, todayRow.Day);
         dailyDiv.innerHTML = `
           <h3>Today</h3>
-          <p><strong>${todayRow["Day of the week"]}</strong>, ${todayRow.Date} - Day ${day}</p>
-          <p>Special: ${special}</p>
+          <p><strong>${todayRow["Day of the week"] || ""}</strong>, ${todayRow.Date} - Day ${todayRow.Day}</p>
+          <p>Special: <strong>${special}</strong></p>
         `;
       } else {
-        dailyDiv.innerHTML = "<h3>Today</h3><p>No data for today.</p>";
+        dailyDiv.innerHTML = "<h3>Today</h3><p>No schedule data found for today's date.</p>";
       }
 
       // Next 5 days
-      const todayIndex = calendarData.findIndex(r => r.Date === todayStr);
-      let nextRows = calendarData.slice(todayIndex, todayIndex + 6);
+      const todayIndex = calendarData.findIndex(r => isSameDate(r.Date, today));
+      const startIndex = todayIndex !== -1 ? todayIndex : 0;
+      let nextRows = calendarData.slice(startIndex, startIndex + 5);
 
       if (!nextRows.length) {
         weekDiv.innerHTML = "<p>No upcoming data available.</p>";
@@ -174,11 +219,10 @@
       let table = "<table><tr><th>Date</th><th>Day</th><th>Special</th></tr>";
       nextRows.forEach(r => {
         if (!r.Date) return;
-        const day = r.Day;
-        const special = (day && homeroomData[homeroom][`Day${day}`]) || r.Day;
+        const special = getSpecialForDay(homeroom, r.Day);
         table += `<tr>
-          <td>${r["Day of the week"]}, ${r.Date}</td>
-          <td>${day}</td>
+          <td>${r["Day of the week"] ? r["Day of the week"] + ", " : ""}${r.Date}</td>
+          <td>${r.Day}</td>
           <td>${special}</td>
         </tr>`;
       });
