@@ -103,12 +103,19 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
 
   <script>
-    // CSV Published Links
+    // Published CSV Links
     const calendarUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vThlCcG-UjJPsj0VqjrRCeP9dlrGpzbh9aeV7q7mTniPBNWF61UvQHLb9N_uq-GH_NjQxqVnqtJa86U/pub?gid=0&single=true&output=csv";
     const homeroomUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vThlCcG-UjJPsj0VqjrRCeP9dlrGpzbh9aeV7q7mTniPBNWF61UvQHLb9N_uq-GH_NjQxqVnqtJa86U/pub?gid=414191937&single=true&output=csv";
 
     let calendarData = [];
     let homeroomData = {};
+
+    // Helper: Safely get cell value ignoring extra spaces in header names
+    function getVal(row, keyName) {
+      if (!row) return "";
+      const foundKey = Object.keys(row).find(k => k.trim().toLowerCase() === keyName.toLowerCase());
+      return foundKey ? row[foundKey] : "";
+    }
 
     function loadData() {
       Papa.parse(calendarUrl, {
@@ -124,11 +131,9 @@
             skipEmptyLines: true,
             complete: function(results2) {
               results2.data.forEach(row => {
-                // Find column key matching 'Homeroom' ignoring trailing spaces
-                const hrKey = Object.keys(row).find(k => k.trim() === "Homeroom");
-                if (hrKey && row[hrKey]) {
-                  const homeroomName = row[hrKey].trim();
-                  homeroomData[homeroomName] = row;
+                const homeroomVal = getVal(row, "Homeroom");
+                if (homeroomVal) {
+                  homeroomData[homeroomVal.trim()] = row;
                 }
               });
 
@@ -166,44 +171,35 @@
              d.getDate() === targetDateObj.getDate();
     }
 
-    // Normalizes day identifiers like "01", "Day 01", "1" -> maps to matching special column
+    // Looks up special from Homeroom sheet matching current rotation day
     function getSpecialForDay(homeroom, rawDayValue) {
-      if (!homeroom || !rawDayValue || !homeroomData[homeroom]) return "No data";
+      if (!homeroom || !rawDayValue || !homeroomData[homeroom]) return "N/A";
 
       const cleanDay = String(rawDayValue).trim();
 
-      // If the Calendar says "no school", return "No school"
       if (cleanDay.toLowerCase().includes("no school")) {
-        return "No school";
+        return "no school";
       }
 
       const homeroomRow = homeroomData[homeroom];
 
-      // 1. Direct match check (e.g. column in Homeroom sheet is named "Day 01" or "Day 1")
-      const directKey = Object.keys(homeroomRow).find(
-        k => k.trim().toLowerCase() === cleanDay.toLowerCase()
-      );
-      if (directKey && homeroomRow[directKey]) {
-        return homeroomRow[directKey];
-      }
-
-      // 2. Numeric fallback (Extracts digit 1 from "Day 01" or "01" and tries matching "Day1" or "Day 01")
+      // Extract digit (e.g. "Day 01" or "01" -> 1)
       const numericDay = parseInt(cleanDay.replace(/\D/g, ""), 10);
-      if (!isNaN(numericDay)) {
-        const paddedKey = `Day ${String(numericDay).padStart(2, "0")}`; // "Day 01"
-        const unpaddedKey = `Day${numericDay}`;                         // "Day1"
+      if (isNaN(numericDay)) return "no school";
 
-        const fallbackKey = Object.keys(homeroomRow).find(
-          k => k.trim().toLowerCase() === paddedKey.toLowerCase() || 
-               k.trim().toLowerCase() === unpaddedKey.toLowerCase()
-        );
+      const targetKeyPadded = `Day ${String(numericDay).padStart(2, "0")}`; // "Day 01"
+      const targetKeyUnpadded = `Day${numericDay}`;                          // "Day1"
+      const targetKeySpace = `Day ${numericDay}`;                            // "Day 1"
 
-        if (fallbackKey && homeroomRow[fallbackKey]) {
-          return homeroomRow[fallbackKey];
-        }
-      }
+      // Match header in Homeroom sheet
+      const matchedKey = Object.keys(homeroomRow).find(k => {
+        const trimmed = k.trim().toLowerCase();
+        return trimmed === targetKeyPadded.toLowerCase() ||
+               trimmed === targetKeyUnpadded.toLowerCase() ||
+               trimmed === targetKeySpace.toLowerCase();
+      });
 
-      return "No special";
+      return (matchedKey && homeroomRow[matchedKey]) ? homeroomRow[matchedKey] : "No special";
     }
 
     function renderViews(homeroom, dailyId, weekId) {
@@ -217,13 +213,17 @@
       }
 
       const today = new Date();
-      const todayRow = calendarData.find(r => isSameDate(r.Date, today));
+      const todayRow = calendarData.find(r => isSameDate(getVal(r, "Date"), today));
 
       if (todayRow) {
-        const special = getSpecialForDay(homeroom, todayRow.Day);
+        const rawDay = getVal(todayRow, "Day");
+        const dateVal = getVal(todayRow, "Date");
+        const dayOfWeek = getVal(todayRow, "Day of the week");
+        const special = getSpecialForDay(homeroom, rawDay);
+
         dailyDiv.innerHTML = `
           <h3>Today</h3>
-          <p><strong>${todayRow["Day of the week"] || ""}</strong>, ${todayRow.Date} - Day ${todayRow.Day}</p>
+          <p><strong>${dayOfWeek}</strong>, ${dateVal} - Day ${rawDay}</p>
           <p>Special: <strong>${special}</strong></p>
         `;
       } else {
@@ -231,9 +231,9 @@
       }
 
       // Next 5 days
-      const todayIndex = calendarData.findIndex(r => isSameDate(r.Date, today));
+      const todayIndex = calendarData.findIndex(r => isSameDate(getVal(r, "Date"), today));
       const startIndex = todayIndex !== -1 ? todayIndex : 0;
-      let nextRows = calendarData.slice(startIndex, startIndex + 5);
+      let nextRows = calendarData.slice(startIndex, startIndex + 6);
 
       if (!nextRows.length) {
         weekDiv.innerHTML = "<p>No upcoming data available.</p>";
@@ -242,11 +242,16 @@
 
       let table = "<table><tr><th>Date</th><th>Day</th><th>Special</th></tr>";
       nextRows.forEach(r => {
-        if (!r.Date) return;
-        const special = getSpecialForDay(homeroom, r.Day);
+        const dateVal = getVal(r, "Date");
+        if (!dateVal) return;
+
+        const rawDay = getVal(r, "Day");
+        const dayOfWeek = getVal(r, "Day of the week");
+        const special = getSpecialForDay(homeroom, rawDay);
+
         table += `<tr>
-          <td>${r["Day of the week"] ? r["Day of the week"] + ", " : ""}${r.Date}</td>
-          <td>${r.Day}</td>
+          <td>${dayOfWeek ? dayOfWeek + ", " : ""}${dateVal}</td>
+          <td>${rawDay}</td>
           <td>${special}</td>
         </tr>`;
       });
