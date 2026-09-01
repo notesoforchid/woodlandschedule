@@ -168,18 +168,43 @@
 
     // Normalizes day identifiers like "01", "Day 01", "1" -> maps to "Day1"
     function getSpecialForDay(homeroom, rawDayValue) {
-      if (!homeroom || !rawDayValue || !homeroomData[homeroom]) return "No data";
+  if (!homeroom || !rawDayValue || !homeroomData[homeroom]) return "No data";
 
-      // Extracts digits only (e.g., "Day 01" or "01" becomes 1)
-      const numericDay = parseInt(String(rawDayValue).replace(/\D/g, ""), 10);
-      if (isNaN(numericDay)) return rawDayValue || "No school";
+  const cleanDay = String(rawDayValue).trim();
 
-      const targetKey = `Day${numericDay}`;
+  // If the Calendar says "no school", return "No school"
+  if (cleanDay.toLowerCase().includes("no school")) {
+    return "No school";
+  }
 
-      // Search for key matching DayX in homeroom row (ignoring spaces)
-      const matchedKey = Object.keys(homeroomData[homeroom]).find(k => k.trim() === targetKey);
+  const homeroomRow = homeroomData[homeroom];
 
-      return matchedKey ? (homeroomData[homeroom][matchedKey] || "No special") : "No special";
+  // 1. Direct match check (e.g. if column in Homeroom sheet is named "Day 01" or "Day 1")
+  const directKey = Object.keys(homeroomRow).find(
+    k => k.trim().toLowerCase() === cleanDay.toLowerCase()
+  );
+  if (directKey && homeroomRow[directKey]) {
+    return homeroomRow[directKey];
+  }
+
+  // 2. Numeric fallback (Extracts digit 1 from "Day 01" or "01" and tries matching "Day1" or "Day 01")
+  const numericDay = parseInt(cleanDay.replace(/\D/g, ""), 10);
+  if (!isNaN(numericDay)) {
+    const paddedKey = `Day ${String(numericDay).padStart(2, "0")}`; // "Day 01"
+    const unpaddedKey = `Day${numericDay}`;                         // "Day1"
+
+    const fallbackKey = Object.keys(homeroomRow).find(
+      k => k.trim().toLowerCase() === paddedKey.toLowerCase() || 
+           k.trim().toLowerCase() === unpaddedKey.toLowerCase()
+    );
+
+    if (fallbackKey && homeroomRow[fallbackKey]) {
+      return homeroomRow[fallbackKey];
+    }
+  }
+
+  return "No special";
+
     }
 
     function renderViews(homeroom, dailyId, weekId) {
